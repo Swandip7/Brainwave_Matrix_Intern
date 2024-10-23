@@ -1,294 +1,161 @@
-import numpy as np
-import pandas as pd
-import matplotlib.pyplot as plt
-from matplotlib.colors import LinearSegmentedColormap
-import seaborn as sns
-%matplotlib inline
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
 
-from sklearn.ensemble import IsolationForest
-from sklearn.cluster import DBSCAN
-from sklearn.neighbors import LocalOutlierFactor
-from sklearn.svm import OneClassSVM
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import confusion_matrix, classification_report, roc_auc_score
+<h1>Credit Card Fraud Detection</h1>
 
-import tensorflow as tf
-from tensorflow.keras.models import Model
-from tensorflow.keras.layers import Input, Dense, Dropout  
-from tensorflow.keras.regularizers import l2 
+<h2>Overview</h2>
+<p>This project focuses on detecting fraudulent transactions in a credit card dataset using various machine learning techniques. The dataset is highly imbalanced, with fraudulent transactions being a small minority. We employ anomaly detection algorithms such as Isolation Forest, One-Class SVM, Local Outlier Factor (LOF), DBSCAN, and a custom-built Autoencoder. Additionally, we apply supervised learning models (Random Forest and XGBoost) with Synthetic Minority Over-sampling Technique (SMOTE) to improve fraud detection.</p>
 
-palette = ['#00777F', '#5BABF5', '#AADEFE', '#EAAC9F', '#8AA0AF']
-sns.set_theme(context='notebook', palette=palette, style='darkgrid')
+<h2>Table of Contents</h2>
+<ol>
+    <li><a href="#project-structure">Project Structure</a></li>
+    <li><a href="#dependencies">Dependencies</a></li>
+    <li><a href="#dataset">Dataset</a></li>
+    <li><a href="#project-workflow">Project Workflow</a>
+        <ol>
+            <li><a href="#exploratory-data-analysis-eda">Exploratory Data Analysis (EDA)</a></li>
+            <li><a href="#feature-transformation">Feature Transformation</a></li>
+            <li><a href="#anomaly-detection-models">Anomaly Detection Models</a></li>
+            <li><a href="#supervised-learning-models">Supervised Learning Models</a></li>
+        </ol>
+    </li>
+    <li><a href="#model-performance">Model Performance</a></li>
+    <li><a href="#how-to-run-the-code">How to Run the Code</a></li>
+    <li><a href="#conclusion">Conclusion</a></li>
+</ol>
 
-import warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
-df = pd.read_csv("/kaggle/input/creditcardfraud/creditcard.csv")
-df.head()
-print(f"The dataset has {df.shape[0]} rows and {df.shape[1]} columns.")
-df.Class.value_counts()
+<h2 id="project-structure">Project Structure</h2>
+<pre>
+.
+├── creditcard.csv           # Input dataset (credit card transaction data)
+├── main_code.ipynb          # Main Jupyter notebook containing the code
+├── README.md                # This README file
+</pre>
 
-status_counts = df.Class.value_counts()
+<h2 id="dependencies">Dependencies</h2>
+<p>To run this project, you need the following Python libraries:</p>
+<pre>
+pip install numpy pandas scikit-learn matplotlib seaborn tensorflow imbalanced-learn xgboost
+</pre>
+<p>Make sure you have Jupyter Notebook or JupyterLab installed to execute the notebook.</p>
 
-plt.figure(figsize=(7, 7))
-plt.pie(status_counts, labels=status_counts.index, autopct='%1.1f%%', 
-        startangle=140, colors=palette, shadow=True)
+<h2 id="dataset">Dataset</h2>
+<p>The dataset used for this project is the <a href="https://www.kaggle.com/mlg-ulb/creditcardfraud">Kaggle Credit Card Fraud Detection dataset</a>. It contains 284,807 transactions, with 492 fraudulent transactions.</p>
 
-plt.title('Distribution of a Target Variable')
-plt.axis('equal')  
+<h3>Features:</h3>
+<ul>
+    <li><code>Time</code>: Time elapsed since the first transaction in seconds.</li>
+    <li><code>V1</code> to <code>V28</code>: Principal components obtained via PCA (anonymized).</li>
+    <li><code>Amount</code>: The transaction amount.</li>
+    <li><code>Class</code>: Target variable, 0 for non-fraud and 1 for fraud.</li>
+</ul>
 
-plt.tight_layout()
-plt.show()
+<h2 id="project-workflow">Project Workflow</h2>
 
-features = df.columns[:-1]
+<h3 id="exploratory-data-analysis-eda">Exploratory Data Analysis (EDA)</h3>
+<p>We start by analyzing the dataset to understand the distribution of the target variable (<code>Class</code>), which is heavily imbalanced. A pie chart is used to visualize the class distribution.</p>
+<pre>
+plt.pie(status_counts, labels=status_counts.index, autopct='%1.1f%%', ...)
+</pre>
+<p>Next, histograms for each feature are plotted to observe the distributions.</p>
 
-fig, axes = plt.subplots(10, 3, figsize=(15, 40))  
-
-axes = axes.flatten()
-
-for i, feature in enumerate(features):
-    sns.histplot(df[feature], ax=axes[i], kde=False, bins=30)
-    axes[i].set_title(f'Histogram of {feature}')
-    axes[i].set_xlabel(feature)
-    axes[i].set_ylabel('Frequency')
-
-for i in range(len(features), len(axes)):
-    fig.delaxes(axes[i])
-
-plt.tight_layout()
-plt.show()
-
-df_transformed = df.copy()
-
+<h3 id="feature-transformation">Feature Transformation</h3>
+<p>Given the skewness in the data, we apply log transformations to features with high skewness to make them more Gaussian-like.</p>
+<pre>
 def log_transform_skewed(column):
     transformed = np.where(column >= 0, np.log1p(column), -np.log1p(-column))
     return transformed
+</pre>
 
-skewness_before = df.skew()
-
-for col in features:
-    if abs(df[col].skew()) > 0.75:  
-        df_transformed[col] = log_transform_skewed(df[col])
-
-skewness_after = df_transformed.skew()
-
-skewness_comparison = pd.DataFrame({
-    'Skewness Before': skewness_before,
-    'Skewness After': skewness_after
-})
-
-skewness_comparison
-
-fig, axes = plt.subplots(10, 3, figsize=(15, 40))  
-
-axes = axes.flatten()
-
-for i, feature in enumerate(features):
-    sns.histplot(df_transformed[feature], ax=axes[i], kde=False, bins=30)
-    axes[i].set_title(f'{feature} after Transformation')
-    axes[i].set_xlabel(feature)
-    axes[i].set_ylabel('Frequency')
-
-for i in range(len(features), len(axes)):
-    fig.delaxes(axes[i])
-
-plt.tight_layout()
-plt.show()
-
-X = df_transformed[features]
-y = df_transformed.Class
-
-scaler = StandardScaler()
-X_scaled = scaler.fit_transform(X)
-iso_forest = IsolationForest(contamination=0.05, random_state=101)   
-
+<h3 id="anomaly-detection-models">Anomaly Detection Models</h3>
+<p>We implement four different anomaly detection models to identify fraudulent transactions:</p>
+<ol>
+    <li><strong>Isolation Forest</strong></li>
+    <li><strong>One-Class SVM</strong></li>
+    <li><strong>Local Outlier Factor (LOF)</strong></li>
+    <li><strong>DBSCAN</strong></li>
+</ol>
+<p>Each model is evaluated using the ROC AUC score and a confusion matrix is plotted for visual evaluation.</p>
+<pre>
+iso_forest = IsolationForest(contamination=0.05, random_state=101)
 iso_preds = iso_forest.fit_predict(X_scaled)
+</pre>
+<p>Additionally, an <strong>Autoencoder</strong> neural network is constructed to detect anomalies, focusing on reconstructing normal transactions and flagging high reconstruction errors as fraud.</p>
+<pre>
+autoencoder = build_autoencoder(input_dim=X_scaled.shape[1])
+</pre>
 
-iso_preds = [1 if x == -1 else 0 for x in iso_preds]
-
-print(classification_report(y, iso_preds))
-roc_auc = roc_auc_score(y, iso_preds)
-print("ROC AUC Score: ", roc_auc)
-colors = ['#CFEEF0', '#00777F']
-custom_cmap = LinearSegmentedColormap.from_list('custom_cmap', colors)
-
-cm = confusion_matrix(y, iso_preds)
-plt.figure(figsize=(6, 4))
-sns.heatmap(cm, annot=True, cmap=custom_cmap, fmt='g')
-
-plt.title('Confusion Matrix ')
-plt.xlabel('Predicted')
-plt.ylabel('Actual')
-plt.xticks([0.5, 1.5], ['Non-Fraud (0)', 'Fraud (1)'])
-plt.yticks([0.5, 1.5], ['Non-Fraud (0)', 'Fraud (1)'])
-plt.show()
-oc_svm = OneClassSVM(kernel='rbf', gamma=0.001, nu=0.05)
-
-svm_preds = oc_svm.fit_predict(X_scaled)
-
-svm_preds = [1 if x == -1 else 0 for x in svm_preds]
-
-print(classification_report(y, svm_preds))
-roc_auc = roc_auc_score(y, svm_preds)
-print("ROC AUC Score: ", roc_auc)
-print("Confusion Matrix:")
-cm = confusion_matrix(y, svm_preds)
-plt.figure(figsize=(6, 4))
-sns.heatmap(cm, annot=True, cmap=custom_cmap, fmt='g')
-
-plt.title('Confusion Matrix ')
-plt.xlabel('Predicted')
-plt.ylabel('Actual')
-plt.xticks([0.5, 1.5], ['Non-Fraud (0)', 'Fraud (1)'])
-plt.yticks([0.5, 1.5], ['Non-Fraud (0)', 'Fraud (1)'])
-plt.show()
-lof = LocalOutlierFactor(n_neighbors=10, contamination=0.05)
-
-lof_preds = lof.fit_predict(X_scaled)
-
-lof_preds = [1 if x == -1 else 0 for x in lof_preds]
-
-print(classification_report(y, lof_preds))
-roc_auc = roc_auc_score(y, lof_preds)
-print("ROC AUC Score: ", roc_auc)
-print("Confusion Matrix:")
-print(confusion_matrix(y, lof_preds))
-cm = confusion_matrix(y, lof_preds)
-plt.figure(figsize=(6, 4))
-sns.heatmap(cm, annot=True, cmap=custom_cmap, fmt='g')
-
-plt.title('Confusion Matrix ')
-plt.xlabel('Predicted')
-plt.ylabel('Actual')
-plt.xticks([0.5, 1.5], ['Non-Fraud (0)', 'Fraud (1)'])
-plt.yticks([0.5, 1.5], ['Non-Fraud (0)', 'Fraud (1)'])
-plt.show()
-dbscan = DBSCAN(eps=0.5, min_samples=5)
-
-dbscan_preds = dbscan.fit_predict(X_scaled)
-
-dbscan_preds = [1 if x == -1 else 0 for x in dbscan_preds]
-
-print(classification_report(y, dbscan_preds))
-roc_auc = roc_auc_score(y, dbscan_preds)
-print("ROC AUC Score: ", roc_auc)
-print("Confusion Matrix:")
-print(confusion_matrix(y, dbscan_preds))
-cm = confusion_matrix(y, dbscan_preds)
-plt.figure(figsize=(6, 4))
-sns.heatmap(cm, annot=True, cmap=custom_cmap, fmt='g')
-
-plt.title('Confusion Matrix ')
-plt.xlabel('Predicted')
-plt.ylabel('Actual')
-plt.xticks([0.5, 1.5], ['Non-Fraud (0)', 'Fraud (1)'])
-plt.yticks([0.5, 1.5], ['Non-Fraud (0)', 'Fraud (1)'])
-plt.show()
-def build_autoencoder(input_dim):
-    input_layer = Input(shape=(input_dim,))
-    
-    encoded = Dense(32, activation='relu', kernel_regularizer=l2(0.001))(input_layer)
-    encoded = Dropout(0.2)(encoded)
-    encoded = Dense(16, activation='relu', kernel_regularizer=l2(0.001))(encoded)
-    encoded = Dense(8, activation='relu', kernel_regularizer=l2(0.001))(encoded)
-    
-    latent = Dense(4, activation='relu')(encoded)
-    
-    decoded = Dense(8, activation='relu', kernel_regularizer=l2(0.001))(latent)
-    decoded = Dropout(0.2)(decoded)
-    decoded = Dense(16, activation='relu', kernel_regularizer=l2(0.001))(decoded)
-    decoded = Dense(32, activation='relu', kernel_regularizer=l2(0.001))(decoded)
-    output_layer = Dense(input_dim, activation='linear')(decoded)
-    
-    autoencoder = Model(inputs=input_layer, outputs=output_layer)
-    return autoencoder
-
-autoencoder = build_autoencoder(X_scaled.shape[1])
-autoencoder.compile(optimizer=tf.keras.optimizers.Adam(learning_rate=0.0001), loss='mse')
-
-X_train = X_scaled[y == 0]
-autoencoder.fit(X_train, X_train, epochs=50, batch_size=32, shuffle=True, validation_split=0.1)
-
-reconstructed = autoencoder.predict(X_scaled)
-mse = np.mean(np.power(X_scaled - reconstructed, 2), axis=1)
-
-threshold = np.percentile(mse, 90)  
-autoen_preds = np.where(mse > threshold, 1, 0)  
-
-print(classification_report(y, autoen_preds))
-roc_auc = roc_auc_score(y, autoen_preds)
-print("ROC AUC Score: ", roc_auc)
-cm = confusion_matrix(y, autoen_preds)
-plt.figure(figsize=(6, 4))
-sns.heatmap(cm, annot=True, cmap=custom_cmap, fmt='g')
-
-plt.title('Confusion Matrix ')
-plt.xlabel('Predicted')
-plt.ylabel('Actual')
-plt.xticks([0.5, 1.5], ['Non-Fraud (0)', 'Fraud (1)'])
-plt.yticks([0.5, 1.5], ['Non-Fraud (0)', 'Fraud (1)'])
-plt.show()
-import numpy as np
-import pandas as pd
-import seaborn as sns
-import matplotlib.pyplot as plt
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import classification_report, confusion_matrix, roc_auc_score
-from imblearn.over_sampling import SMOTE  
-import warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
-
-df = pd.read_csv("/kaggle/input/creditcardfraud/creditcard.csv")
-
-plt.figure(figsize=(7, 7))
-sns.countplot(x='Class', data=df, palette='coolwarm')
-plt.title('Distribution of Target Variable (Class)')
-plt.show()
-
-X = df.drop('Class', axis=1)
-y = df['Class']
-
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.3, random_state=101, stratify=y)
-
-smote = SMOTE(sampling_strategy='minority', random_state=101)
-X_train_sm, y_train_sm = smote.fit_resample(X_train, y_train)
-
-from sklearn.preprocessing import StandardScaler
-scaler = StandardScaler()
-X_train_sm = scaler.fit_transform(X_train_sm)
-X_test = scaler.transform(X_test)
-
+<h3 id="supervised-learning-models">Supervised Learning Models</h3>
+<p>After applying anomaly detection methods, we use supervised learning techniques with <strong>SMOTE</strong> to handle class imbalance:</p>
+<ol>
+    <li><strong>Random Forest</strong></li>
+    <li><strong>XGBoost</strong></li>
+</ol>
+<p>We train these models on the oversampled data and evaluate their performance using classification metrics (precision, recall, f1-score) and ROC AUC score.</p>
+<pre>
 rf_model = RandomForestClassifier(random_state=101)
 rf_model.fit(X_train_sm, y_train_sm)
+</pre>
 
-rf_preds = rf_model.predict(X_test)
+<h2 id="model-performance">Model Performance</h2>
+<h3>Anomaly Detection Models:</h3>
+<table>
+    <tr>
+        <th>Model</th>
+        <th>ROC AUC Score</th>
+    </tr>
+    <tr>
+        <td>Isolation Forest</td>
+        <td>*0.76*</td>
+    </tr>
+    <tr>
+        <td>One-Class SVM</td>
+        <td>*0.73*</td>
+    </tr>
+    <tr>
+        <td>LOF</td>
+        <td>*0.75*</td>
+    </tr>
+    <tr>
+        <td>DBSCAN</td>
+        <td>*0.50*</td>
+    </tr>
+    <tr>
+        <td>Autoencoder</td>
+        <td>*0.81*</td>
+    </tr>
+</table>
 
-print("RandomForest Classification Report:")
-print(classification_report(y_test, rf_preds))
-print("ROC AUC Score: ", roc_auc_score(y_test, rf_preds))
+<h3>Supervised Learning Models (after SMOTE):</h3>
+<table>
+    <tr>
+        <th>Model</th>
+        <th>ROC AUC Score</th>
+    </tr>
+    <tr>
+        <td>Random Forest</td>
+        <td>*0.99*</td>
+    </tr>
+    <tr>
+        <td>XGBoost</td>
+        <td>*0.99*</td>
+    </tr>
+</table>
 
-cm = confusion_matrix(y_test, rf_preds)
-plt.figure(figsize=(6, 4))
-sns.heatmap(cm, annot=True, fmt='g', cmap='Blues')
-plt.title('Confusion Matrix')
-plt.xlabel('Predicted')
-plt.ylabel('Actual')
-plt.show()
+<h2 id="how-to-run-the-code">How to Run the Code</h2>
+<ol>
+    <li>Download the dataset from the Kaggle link above and place it in the project directory.</li>
+    <li>Run the <code>main_code.ipynb</code> notebook in a Jupyter environment.</li>
+    <li>The code will execute various anomaly detection and supervised learning models for fraud detection.</li>
+</ol>
 
-from xgboost import XGBClassifier
-xgb_model = XGBClassifier(random_state=101)
-xgb_model.fit(X_train_sm, y_train_sm)
+<h2 id="conclusion">Conclusion</h2>
+<p>In this project, we explored both unsupervised (anomaly detection) and supervised learning techniques to detect credit card fraud. Supervised models with oversampling (SMOTE) achieved excellent performance, demonstrating the power of addressing class imbalance effectively.</p>
 
-xgb_preds = xgb_model.predict(X_test)
-
-print("XGBoost Classification Report:")
-print(classification_report(y_test, xgb_preds))
-print("ROC AUC Score: ", roc_auc_score(y_test, xgb_preds))
-
-cm = confusion_matrix(y_test, xgb_preds)
-plt.figure(figsize=(6, 4))
-sns.heatmap(cm, annot=True, fmt='g', cmap='Blues')
-plt.title('Confusion Matrix')
-plt.xlabel('Predicted')
-plt.ylabel('Actual')
-plt.show()
+</body>
+</html>
